@@ -10,7 +10,7 @@ nextflow.enable.dsl=2
 
 // Parameters sanity checking
 
-Set valid_params = ['max_cores', 'cores', 'memory', 'profile', 'help', 'reads', 'genome', 'nanopore', 'minimap2_additional_params', 'minimap2_dir',  'annotation', 'deg', 'autodownload', 'pathway', 'species', 'include_species', 'strand', 'mode', 'tpm', 'fastp_additional_params', 'hisat2_additional_params', 'featurecounts_additional_params', 'feature_id_type', 'busco_db', 'dammit_uniref90', 'skip_sortmerna', 'skip_read_preprocessing', 'assembly', 'output', 'fastp_dir', 'sortmerna_dir', 'hisat2_dir', 'featurecounts_dir', 'tpm_filter_dir', 'annotation_dir', 'deseq2_dir', 'assembly_dir', 'rnaseq_annotation_dir', 'uniref90_dir', 'readqc_dir', 'multiqc_dir', 'nf_runinfo_dir', 'permanentCacheDir', 'condaCacheDir', 'singularityCacheDir', 'softlink_results', 'cloudProcess', 'permanent-cache-dir', 'conda-cache-dir', 'singularity-cache-dir', 'cloud-process', 'setup', 'rna'] // don't ask me why there is 'permanent-cache-dir', 'conda-cache-dir', 'singularity-cache-dir', 'cloud-process'
+Set valid_params = ['max_cores', 'cores', 'memory', 'profile', 'help', 'reads', 'genome', 'nanopore', 'minimap2_additional_params', 'minimap2_dir',  'annotation', 'deg', 'autodownload', 'pathway', 'species', 'include_species', 'strand', 'mode', 'tpm', 'fastp_additional_params', 'hisat2_additional_params', 'featurecounts_additional_params', 'feature_id_type', 'busco_db', 'dammit_uniref90', 'skip_sortmerna', 'skip_read_preprocessing', 'assembly', 'output', 'fastp_dir', 'sortmerna_dir', 'hisat2_dir', 'featurecounts_dir', 'tpm_filter_dir', 'annotation_dir', 'deseq2_dir', 'assembly_dir', 'rnaseq_annotation_dir', 'uniref90_dir', 'readqc_dir', 'multiqc_dir', 'nf_runinfo_dir', 'permanentCacheDir', 'condaCacheDir', 'singularityCacheDir', 'softlink_results', 'cloudProcess', 'permanent-cache-dir', 'conda-cache-dir', 'singularity-cache-dir', 'cloud-process', 'setup', 'rna', 'aligner', 'star_additional_params', 'star_dir', 'star_sjdbOverhang','star_sjdb-overhang'] // don't ask me why there is 'permanent-cache-dir', 'conda-cache-dir', 'singularity-cache-dir', 'cloud-process'
 
 def parameter_diff = params.keySet() - valid_params
 if (parameter_diff.size() != 0){
@@ -365,6 +365,7 @@ include {referenceGet; concat_genome} from './modules/referenceGet'
 include {annotationGet; concat_annotation} from './modules/annotationGet'
 include {sortmernaGet} from './modules/sortmernaGet'
 include {hisat2index} from './modules/hisat2'
+include {starindex} from './modules/star'
 include {minimap2index} from './modules/minimap2'
 include {dammitGetDB} from './modules/dammitGetDB'
 include {buscoGetDB} from './modules/buscoGetDB'
@@ -373,6 +374,7 @@ include {buscoGetDB} from './modules/buscoGetDB'
 include {fastp} from './modules/fastp'
 include {sortmerna} from './modules/sortmerna'
 include {hisat2; index_bam} from './modules/hisat2'
+include {star} from './modules/star'
 include {minimap2; index_bam_minimap2} from './modules/minimap2'
 include {featurecounts} from './modules/featurecounts'
 include {tpm_filter} from './modules/tpm_filter'
@@ -554,6 +556,7 @@ workflow preprocess_illumina {
         read_input_ch
         reference
         sortmerna_db
+	annotation
 
     main:
         // initial QC of raw reads
@@ -588,19 +591,35 @@ workflow preprocess_illumina {
             sortmerna_no_rna_fastq = sortmerna.out.no_rna_fastq
             sortmerna_log = sortmerna.out.log
         }
+	
+	def aligner = params.aligner ?: 'hisat2'
+        def sample_bam_out
+        def mapping_log_ch
+        if (aligner == 'star') {
+            // STAR index
+            starindex(reference, annotation)
+            // STAR align
+            star(sortmerna_no_rna_fastq, starindex.out, annotation, params.star_additional_params)
+            // index BAM
+            index_bam(star.out.sample_bam)
 
-        // HISAT2 index
-        hisat2index(reference)
-        // map with HISAT2
-        hisat2(sortmerna_no_rna_fastq, hisat2index.out, params.hisat2_additional_params)
-        // index BAM files
-        index_bam(hisat2.out.sample_bam)
-
+	    mapping_log_ch = star.out.log
+            sample_bam_out = star.out.sample_bam
+	} else {
+            // HISAT2 index
+            hisat2index(reference)
+            // map with HISAT2
+            hisat2(sortmerna_no_rna_fastq, hisat2index.out, params.hisat2_additional_params)
+            // index BAM files
+            index_bam(hisat2.out.sample_bam)
+	    mapping_log_ch = hisat2.out.log
+            sample_bam_out = hisat2.out.sample_bam
+        }
     emit:
-        sample_bam_ch = hisat2.out.sample_bam
+        sample_bam_ch = sample_bam_out
         fastp_json_report 
         sortmerna_log
-        mapping_log = hisat2.out.log  
+        mapping_log = mapping_log_ch  
         readqcPre = fastqcPre.out.zip  
         readqcPost
         cleaned_reads_ch = sortmerna_no_rna_fastq
@@ -843,7 +862,7 @@ workflow {
         
         // preprocess RNA-Seq reads (Illumina or Nanopore)
         if (!params.nanopore) { 
-            preprocess_illumina(read_input_ch, reference, sortmerna_db) 
+            preprocess_illumina(read_input_ch, reference, sortmerna_db, annotation) 
         } else { 
             preprocess_nanopore(read_input_ch, reference, sortmerna_db) 
         }

@@ -110,8 +110,8 @@ process index_bam {
     label 'smallTask'    
     tag "$meta.sample"
     
-    if ( params.softlink_results ) { publishDir "${params.output}/${params.hisat2_dir}", pattern: "*.bai" }
-    else { publishDir "${params.output}/${params.hisat2_dir}", mode: 'copy', pattern: "*.bai" }
+    if ( params.softlink_results ) { publishDir "${params.output}/${params.aligner == 'star' ? params.star_dir : params.hisat2_dir}", pattern: "*.bai" }
+    else { publishDir "${params.output}/${params.aligner == 'star' ? params.star_dir : params.hisat2_dir}", mode: 'copy', pattern: "*.bai" }
 
     input:
     tuple val(meta), path(bam_file)
