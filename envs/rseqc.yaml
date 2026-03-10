@@ -3,7 +3,6 @@ channels:
   - bioconda
   - conda-forge
   - defaults
-
 dependencies:
   - rseqc=4.0.0
   - samtools=1.21
