@@ -117,7 +117,7 @@ process index_bam {
     tuple val(meta), path(bam_file)
 
     output:
-    path("${bam_file}.bai")
+    tuple val(meta), path(bam_file), path("${bam_file}.bai"), emit: bam_bai
 
     script:
     """

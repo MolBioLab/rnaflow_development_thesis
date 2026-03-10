@@ -10,7 +10,7 @@ nextflow.enable.dsl=2
 
 // Parameters sanity checking
 
-Set valid_params = ['max_cores', 'cores', 'memory', 'profile', 'help', 'reads', 'genome', 'nanopore', 'minimap2_additional_params', 'minimap2_dir',  'annotation', 'deg', 'autodownload', 'pathway', 'species', 'include_species', 'strand', 'mode', 'tpm', 'fastp_additional_params', 'hisat2_additional_params', 'featurecounts_additional_params', 'feature_id_type', 'busco_db', 'dammit_uniref90', 'skip_sortmerna', 'skip_read_preprocessing', 'assembly', 'output', 'fastp_dir', 'sortmerna_dir', 'hisat2_dir', 'featurecounts_dir', 'tpm_filter_dir', 'annotation_dir', 'deseq2_dir', 'assembly_dir', 'rnaseq_annotation_dir', 'uniref90_dir', 'readqc_dir', 'multiqc_dir', 'nf_runinfo_dir', 'permanentCacheDir', 'condaCacheDir', 'singularityCacheDir', 'softlink_results', 'cloudProcess', 'permanent-cache-dir', 'conda-cache-dir', 'singularity-cache-dir', 'cloud-process', 'setup', 'rna', 'aligner', 'star_additional_params', 'star_dir', 'star_sjdbOverhang','star_sjdb-overhang'] // don't ask me why there is 'permanent-cache-dir', 'conda-cache-dir', 'singularity-cache-dir', 'cloud-process'
+Set valid_params = ['max_cores', 'cores', 'memory', 'profile', 'help', 'reads', 'genome', 'nanopore', 'minimap2_additional_params', 'minimap2_dir',  'annotation', 'deg', 'autodownload', 'pathway', 'species', 'include_species', 'strand', 'mode', 'tpm', 'fastp_additional_params', 'hisat2_additional_params', 'featurecounts_additional_params', 'feature_id_type', 'busco_db', 'dammit_uniref90', 'skip_sortmerna', 'skip_read_preprocessing', 'run_rseqc', 'assembly', 'output', 'fastp_dir', 'sortmerna_dir', 'hisat2_dir', 'rseqc_dir', 'featurecounts_dir', 'tpm_filter_dir', 'annotation_dir', 'deseq2_dir', 'assembly_dir', 'rnaseq_annotation_dir', 'uniref90_dir', 'readqc_dir', 'multiqc_dir', 'nf_runinfo_dir', 'permanentCacheDir', 'condaCacheDir', 'singularityCacheDir', 'softlink_results', 'cloudProcess', 'permanent-cache-dir', 'conda-cache-dir', 'singularity-cache-dir', 'cloud-process', 'setup', 'rna', 'aligner', 'star_additional_params', 'star_dir', 'star_sjdbOverhang','star_sjdb-overhang'] // don't ask me why there is 'permanent-cache-dir', 'conda-cache-dir', 'singularity-cache-dir', 'cloud-process'
 
 def parameter_diff = params.keySet() - valid_params
 if (parameter_diff.size() != 0){
@@ -384,6 +384,7 @@ include {nanoplot as nanoplot} from './modules/nanoplot'
 include {multiqc; multiqc_sample_names} from './modules/multiqc'
 include {piano} from "./modules/piano"
 include {webgestalt} from "./modules/webgestalt.nf"
+include {rseqc_gtf_to_bed; rseqc_bam_stat; rseqc_read_duplication; rseqc_gene_body_coverage} from './modules/rseqc'
 
 // assembly & annotation
 include {trinity} from './modules/trinity'
@@ -595,6 +596,8 @@ workflow preprocess_illumina {
 	def aligner = params.aligner ?: 'hisat2'
         def sample_bam_out
         def mapping_log_ch
+        def bam_bai_out
+
         if (aligner == 'star') {
             // STAR index
             starindex(reference, annotation)
@@ -605,6 +608,7 @@ workflow preprocess_illumina {
 
 	    mapping_log_ch = star.out.log
             sample_bam_out = star.out.sample_bam
+            bam_bai_out    = index_bam.out.bam_bai
 	} else {
             // HISAT2 index
             hisat2index(reference)
@@ -614,15 +618,32 @@ workflow preprocess_illumina {
             index_bam(hisat2.out.sample_bam)
 	    mapping_log_ch = hisat2.out.log
             sample_bam_out = hisat2.out.sample_bam
+            bam_bai_out    = index_bam.out.bam_bai
         }
+
+        /*
+         * RSeQC
+         */
+        if (params.run_rseqc) 
+        {
+            rseqc_gtf_to_bed(annotation)
+            rseqc_bam_stat(bam_bai_out)
+            rseqc_read_duplication(bam_bai_out)
+            rseqc_gene_body_coverage(bam_bai_out, rseqc_gtf_to_bed.out.bed) 
+        }
+
     emit:
         sample_bam_ch = sample_bam_out
+        bam_bai_ch    = bam_bai_out
         fastp_json_report 
         sortmerna_log
         mapping_log = mapping_log_ch  
         readqcPre = fastqcPre.out.zip  
         readqcPost
         cleaned_reads_ch = sortmerna_no_rna_fastq
+        rseqc_bam_stat_txt         = rseqc_bam_stat.out.bam_stat
+        rseqc_duplication_files = rseqc_read_duplication.out.read_duplication_files
+        rseqc_gene_body_files = rseqc_gene_body_coverage.out.gene_body_coverage_files
 } 
 
 /***************************************
