@@ -51,7 +51,7 @@ process star {
 
     output:
     tuple val(meta), path("${meta.sample}.sorted.bam"), emit: sample_bam
-    path "${meta.sample}_star_summary.log", emit: log
+    path "${meta.sample}.Log.final.out", emit: log
 
     script:
 
@@ -80,7 +80,6 @@ process star {
             ${additionalParams}
 
         mv ${meta.sample}.Aligned.sortedByCoord.out.bam ${meta.sample}.sorted.bam
-        mv ${meta.sample}.Log.final.out ${meta.sample}_star_summary.log
 
         rm -rf tmp-star-${meta.sample}
         """
@@ -102,7 +101,7 @@ process star {
             ${additionalParams}
 
         mv ${meta.sample}.Aligned.sortedByCoord.out.bam ${meta.sample}.sorted.bam
-        mv ${meta.sample}.Log.final.out ${meta.sample}_star_summary.log
+        mv ${meta.sample}.Log.final.out ${meta.sample}_summary.log
 
         rm -rf tmp-star-${meta.sample}
         """

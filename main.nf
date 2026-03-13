@@ -624,12 +624,23 @@ workflow preprocess_illumina {
         /*
          * RSeQC
          */
-        if (params.run_rseqc) 
-        {
+        bam_stat_ch = channel.empty()
+        read_duplication_ch = channel.empty()
+        gene_body_coverage_ch = channel.empty()
+        
+        gene_body_mqc_ch = channel.empty()
+
+        if (params.run_rseqc) {
             rseqc_gtf_to_bed(annotation)
             rseqc_bam_stat(bam_bai_out)
             rseqc_read_duplication(bam_bai_out)
-            rseqc_gene_body_coverage(bam_bai_out, rseqc_gtf_to_bed.out.bed) 
+            rseqc_gene_body_coverage(bam_bai_out, rseqc_gtf_to_bed.out.bed)
+
+            bam_stat_ch = rseqc_bam_stat.out.bam_stat
+            read_duplication_ch = rseqc_read_duplication.out.read_duplication_files
+            gene_body_coverage_ch = rseqc_gene_body_coverage.out.gene_body_coverage_files
+            
+            gene_body_mqc_ch = gene_body_coverage_ch.map { meta, file -> file }
         }
 
     emit:
@@ -641,9 +652,11 @@ workflow preprocess_illumina {
         readqcPre = fastqcPre.out.zip  
         readqcPost
         cleaned_reads_ch = sortmerna_no_rna_fastq
-        rseqc_bam_stat_txt         = rseqc_bam_stat.out.bam_stat
-        rseqc_duplication_files = rseqc_read_duplication.out.read_duplication_files
-        rseqc_gene_body_files = rseqc_gene_body_coverage.out.gene_body_coverage_files
+ 
+        rseqc_bam_stat_txt      = bam_stat_ch
+        rseqc_duplication_files = read_duplication_ch
+        rseqc_gene_body_files   = gene_body_coverage_ch
+        rseqc_gene_body_mqc = gene_body_mqc_ch
 } 
 
 /***************************************
@@ -680,7 +693,7 @@ workflow preprocess_nanopore {
         sample_bam_ch = minimap2.out.sample_bam
         fastp_json_report = Channel.empty()
         sortmerna_log
-        mapping_log = minimap2.out.log  
+        mapping_log_ch = minimap2.out.log  
         readqcPre = nanoplot.out.zip
         readqcPost = Channel.empty()
         cleaned_reads_ch = sortmerna_no_rna_fastq
@@ -696,9 +709,10 @@ workflow expression_reference_based {
         sample_bam_ch
         fastp_json_report
         sortmerna_log
-        mapping_log
+        mapping_log_ch
         readqcPre
         readqcPost
+        rseqc_gene_body_mqc
         annotation
         deg_comparisons_input_ch
         deseq2_script
@@ -767,10 +781,11 @@ workflow expression_reference_based {
                 multiqc_sample_names.out,
                 fastp_json_report.collect().ifEmpty([]), 
                 sortmerna_log.collect().ifEmpty([]), 
-                mapping_log.collect(), 
+                mapping_log_ch.collect(), 
                 featurecounts.out.log.collect(), 
                 readqcPre.collect().ifEmpty([]),
                 readqcPost.collect().ifEmpty([]),
+                rseqc_gene_body_mqc.collect().ifEmpty([]),
                 tpm_filter.out.stats,
                 params.tpm,
                 [],
@@ -915,6 +930,7 @@ workflow {
                                     preprocess_illumina.out.mapping_log,
                                     preprocess_illumina.out.readqcPre,
                                     preprocess_illumina.out.readqcPost,
+                                    preprocess_illumina.out.rseqc_gene_body_mqc,
                                     annotation,
                                     deg_comparisons_input_ch, 
                                     deseq2_script, 
