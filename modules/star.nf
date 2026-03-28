@@ -101,7 +101,6 @@ process star {
             ${additionalParams}
 
         mv ${meta.sample}.Aligned.sortedByCoord.out.bam ${meta.sample}.sorted.bam
-        mv ${meta.sample}.Log.final.out ${meta.sample}_summary.log
 
         rm -rf tmp-star-${meta.sample}
         """
