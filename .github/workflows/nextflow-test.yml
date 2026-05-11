@@ -8,8 +8,6 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Help_test
-      run: |
-        NXF_VER=23.04.3 curl -s https://get.nextflow.io | bash
-        ./nextflow run main.nf --help
+      run: export NXF_VER=23.04.3 && curl -s https://get.nextflow.io | bash && ./nextflow -version && ./nextflow run main.nf --help
 
 #      run: curl -s https://get.nextflow.io | bash && ./nextflow run main.nf --help
