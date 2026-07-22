@@ -376,7 +376,7 @@ include {sortmerna} from './modules/sortmerna'
 include {hisat2; index_bam} from './modules/hisat2'
 include {star} from './modules/star'
 include {minimap2; index_bam_minimap2} from './modules/minimap2'
-include {featurecounts} from './modules/featurecounts'
+include {featurecounts; featurecounts_biotype_mqc} from './modules/featurecounts'
 include {tpm_filter} from './modules/tpm_filter'
 include {deseq2} from './modules/deseq2'
 include {fastqc as fastqcPre; fastqc as fastqcPost} from './modules/fastqc'
@@ -384,7 +384,8 @@ include {nanoplot as nanoplot} from './modules/nanoplot'
 include {multiqc; multiqc_sample_names} from './modules/multiqc'
 include {piano} from "./modules/piano"
 include {webgestalt} from "./modules/webgestalt.nf"
-include {rseqc_gtf_to_bed; rseqc_bam_stat; rseqc_read_duplication; rseqc_gene_body_coverage} from './modules/rseqc'
+include {rseqc_bam_stat; rseqc_read_duplication; rseqc_gene_body_coverage; rseqc_infer_experiment; rseqc_read_distribution; rseqc_junction_annotation; rseqc_junction_saturation; rseqc_inner_distance} from './modules/rseqc'
+include {ucsc_gtf_to_bed} from './modules/local/ucsc'
 
 // assembly & annotation
 include {trinity} from './modules/trinity'
@@ -627,20 +628,56 @@ workflow preprocess_illumina {
         bam_stat_ch = channel.empty()
         read_duplication_ch = channel.empty()
         gene_body_coverage_ch = channel.empty()
+        infer_experiment_ch = channel.empty()
+        read_distribution_ch = channel.empty()
+        junction_annotation_ch = channel.empty()
+        junction_saturation_ch = channel.empty()
+        inner_distance_ch = channel.empty()
         
+        bam_stat_mqc_ch = channel.empty()
         gene_body_mqc_ch = channel.empty()
+        read_duplication_mqc_ch = channel.empty()
+        infer_experiment_mqc_ch = channel.empty()
+        read_distribution_mqc_ch = channel.empty()
+        junction_annotation_mqc_ch = channel.empty()
+        junction_saturation_mqc_ch = channel.empty()
+        inner_distance_mqc_ch = channel.empty()
 
         if (params.run_rseqc) {
-            rseqc_gtf_to_bed(annotation)
+            ucsc_gtf_to_bed(annotation)
             rseqc_bam_stat(bam_bai_out)
             rseqc_read_duplication(bam_bai_out)
-            rseqc_gene_body_coverage(bam_bai_out, rseqc_gtf_to_bed.out.bed)
+            rseqc_gene_body_coverage(
+    		bam_bai_out,
+    		ucsc_gtf_to_bed.out.bed
+    	    )
+    	    
+    	    rseqc_infer_experiment(bam_bai_out, ucsc_gtf_to_bed.out.bed)
+    	    rseqc_read_distribution(bam_bai_out, ucsc_gtf_to_bed.out.bed)
+    	    rseqc_junction_annotation(bam_bai_out, ucsc_gtf_to_bed.out.bed)
+    	    rseqc_junction_saturation(bam_bai_out, ucsc_gtf_to_bed.out.bed)		
 
             bam_stat_ch = rseqc_bam_stat.out.bam_stat
             read_duplication_ch = rseqc_read_duplication.out.read_duplication_files
             gene_body_coverage_ch = rseqc_gene_body_coverage.out.gene_body_coverage_files
+            infer_experiment_ch = rseqc_infer_experiment.out.infer_experiment
+            read_distribution_ch = rseqc_read_distribution.out.read_distribution
+            junction_annotation_ch = rseqc_junction_annotation.out.junction_annotation_files
+            junction_saturation_ch = rseqc_junction_saturation.out.junction_saturation_files
             
-            gene_body_mqc_ch = gene_body_coverage_ch.map { meta, file -> file }
+            bam_stat_mqc_ch = bam_stat_ch.map { meta, file -> file }
+            gene_body_mqc_ch = gene_body_coverage_ch.map { meta, files -> files }
+            read_duplication_mqc_ch = read_duplication_ch.map { meta, file -> file }
+            infer_experiment_mqc_ch = infer_experiment_ch.map { meta, file -> file }
+            read_distribution_mqc_ch = read_distribution_ch.map { meta, file -> file }
+            junction_annotation_mqc_ch = junction_annotation_ch.map { meta, file -> file }
+            junction_saturation_mqc_ch = junction_saturation_ch.map { meta, file -> file }
+            
+            if (!params.nanopore && param_read_mode == "paired-end") {
+        	rseqc_inner_distance(bam_bai_out, ucsc_gtf_to_bed.out.bed)
+        	inner_distance_ch = rseqc_inner_distance.out.inner_distance_files
+        	inner_distance_mqc_ch = inner_distance_ch.map { meta, file -> file } 
+        	}
         }
 
     emit:
@@ -656,7 +693,20 @@ workflow preprocess_illumina {
         rseqc_bam_stat_txt      = bam_stat_ch
         rseqc_duplication_files = read_duplication_ch
         rseqc_gene_body_files   = gene_body_coverage_ch
+        rseqc_infer_experiment_files = infer_experiment_ch
+        rseqc_read_distribution_files = read_distribution_ch
+        rseqc_junction_annotation_files = junction_annotation_ch
+        rseqc_junction_saturation_files = junction_saturation_ch
+        rseqc_inner_distance_files = inner_distance_ch
+        
+        rseqc_bam_stat_mqc = bam_stat_mqc_ch
+        rseqc_duplication_mqc = read_duplication_mqc_ch
         rseqc_gene_body_mqc = gene_body_mqc_ch
+        rseqc_infer_experiment_mqc = infer_experiment_mqc_ch
+        rseqc_read_distribution_mqc = read_distribution_mqc_ch
+        rseqc_junction_annotation_mqc = junction_annotation_mqc_ch
+        rseqc_junction_saturation_mqc = junction_saturation_mqc_ch
+        rseqc_inner_distance_mqc = inner_distance_mqc_ch
 } 
 
 /***************************************
@@ -712,7 +762,14 @@ workflow expression_reference_based {
         mapping_log_ch
         readqcPre
         readqcPost
+        rseqc_bam_stat_mqc
+        rseqc_duplication_mqc
         rseqc_gene_body_mqc
+        rseqc_infer_experiment_mqc
+        rseqc_read_distribution_mqc
+        rseqc_junction_annotation_mqc
+        rseqc_junction_saturation_mqc
+        rseqc_inner_distance_mqc
         annotation
         deg_comparisons_input_ch
         deseq2_script
@@ -726,6 +783,9 @@ workflow expression_reference_based {
     main:
         // count with featurecounts
         featurecounts(sample_bam_ch, annotation, params.featurecounts_additional_params)
+        
+        // create biotype QC for MultiQC
+	featurecounts_biotype_mqc(featurecounts.out.counts.map { sample, counts -> counts }.collect(), annotation)
 
         // prepare annotation for R input
         format_annotation_gene_rows(annotation, gtf_feature_type_ch)
@@ -782,10 +842,18 @@ workflow expression_reference_based {
                 fastp_json_report.collect().ifEmpty([]), 
                 sortmerna_log.collect().ifEmpty([]), 
                 mapping_log_ch.collect(), 
-                featurecounts.out.log.collect(), 
+                featurecounts.out.log.collect(),
+                featurecounts_biotype_mqc.out.mqc.collect().ifEmpty([]), 
                 readqcPre.collect().ifEmpty([]),
                 readqcPost.collect().ifEmpty([]),
+                rseqc_bam_stat_mqc.collect().ifEmpty([]),
+                rseqc_duplication_mqc.collect().ifEmpty([]),
                 rseqc_gene_body_mqc.collect().ifEmpty([]),
+                rseqc_infer_experiment_mqc.collect().ifEmpty([]),
+                rseqc_read_distribution_mqc.collect().ifEmpty([]),
+                rseqc_junction_annotation_mqc.collect().ifEmpty([]),
+                rseqc_junction_saturation_mqc.collect().ifEmpty([]),
+                rseqc_inner_distance_mqc.collect().ifEmpty([]),
                 tpm_filter.out.stats,
                 params.tpm,
                 [],
@@ -930,7 +998,14 @@ workflow {
                                     preprocess_illumina.out.mapping_log,
                                     preprocess_illumina.out.readqcPre,
                                     preprocess_illumina.out.readqcPost,
+                                    preprocess_illumina.out.rseqc_bam_stat_mqc,
+                                    preprocess_illumina.out.rseqc_duplication_mqc,
                                     preprocess_illumina.out.rseqc_gene_body_mqc,
+                                    preprocess_illumina.out.rseqc_infer_experiment_mqc,
+                                    preprocess_illumina.out.rseqc_read_distribution_mqc,
+                                    preprocess_illumina.out.rseqc_junction_annotation_mqc,
+                                    preprocess_illumina.out.rseqc_junction_saturation_mqc,
+                                    preprocess_illumina.out.rseqc_inner_distance_mqc,
                                     annotation,
                                     deg_comparisons_input_ch, 
                                     deseq2_script, 

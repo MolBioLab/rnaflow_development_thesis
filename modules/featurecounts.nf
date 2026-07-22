@@ -32,7 +32,32 @@ process featurecounts {
     }
     else {
     """
-    featureCounts -pBP -T ${task.cpus} -s ${meta.strandedness} -a ${annotation} -o ${meta.sample}.counts.tsv ${additionalParams} ${bam}
+    featureCounts -pB -T ${task.cpus} -s ${meta.strandedness} -a ${annotation} -o ${meta.sample}.counts.tsv ${additionalParams} ${bam}
     """
     }
+}
+
+process featurecounts_biotype_mqc {
+    label 'subread'
+    tag "all_samples"
+    
+    publishDir "${params.output}/${params.featurecounts_dir}",
+        mode: 'copy',
+        pattern: "featurecounts_biotype_mqc.tsv"
+
+    input:
+    path(counts_files)
+    path(annotation)
+
+    output:
+    path "featurecounts_biotype_mqc.tsv", emit: mqc
+
+    script:
+    """
+    python3 ${projectDir}/bin/featurecounts_biotype_mqc.py \
+        --counts ${counts_files.join(' ')} \
+        --gtf ${annotation} \
+        --biotype gene_biotype \
+        --out featurecounts_biotype_mqc.tsv
+    """
 }
