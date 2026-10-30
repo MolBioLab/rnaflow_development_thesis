@@ -52,10 +52,6 @@ Some RSeQC analyses (https://rseqc.sourceforge.net/) are controlled by the pipel
 | `junction_saturation.py` | Assesses how splice-junction discovery changes with read subsampling | Spliced alignment BAM and compatible gene-model annotation; dependent on installed RSeQC version |
 | `inner_distance.py` | Estimates the inner distance between paired reads | **Paired-end** alignment BAM and compatible BED annotation; not applicable to single-end libraries |
 
-**Annotation preparation:** The development discussions describe GTF-to-BED conversion using `gtfToGenePred` and `genePredToBed` / equivalent implemented conversion utilities. Ensure the required executable(s) exist in the Docker image and that the resulting annotation has the expected BED12 format before enabling annotation-dependent analyses. The exact conversion process and file names should be checked against the current module scripts. A generic `gtf2bed.py` command must **not** be assumed to be present in every RSeQC image.
-
-**Interpretation notes:** Gene-body bias can reflect library design, mRNA enrichment, degradation, or other technical effects; it is not automatically evidence of poor sequencing. Similarly, duplication and junction saturation depend on sequencing depth, library type, and genome/annotation characteristics.
-
 ## Requirements
 
 - Linux environment with a working **Docker daemon** and permission to run containers.
