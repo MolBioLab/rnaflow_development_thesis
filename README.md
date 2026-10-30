@@ -1,747 +1,214 @@
-![logo](figures/logo.png)
+# Extended RNAflow: A Nextflow Pipeline for Bulk RNA-seq Differential Gene Expression Analysis
 
-____
-![](https://img.shields.io/github/v/release/hoelzer-lab/rnaflow)
-![](https://img.shields.io/badge/licence-GPL--3.0-lightgrey.svg)
-![](https://github.com/hoelzer-lab/rnaflow/workflows/Syntax_check/badge.svg)
-[![](https://img.shields.io/badge/published_at-Genes-violet.svg)](https://doi.org/10.3390/genes11121487)
-[![](https://img.shields.io/badge/DOI-10.3390/genes11121487-ff69b4.svg)](https://doi.org/10.3390/genes11121487)
+An extended version of [RNAflow](https://github.com/hoelzer-science/rnaflow), developed to provide **alternative splice-aware read alignment with STAR or HISAT2** and **additional post-alignment RNA-seq quality assessment with RSeQC**. The workflow retains the core RNAflow approach to preprocessing, gene-level quantification, differential expression analysis, and reporting.
 
-![](https://img.shields.io/badge/nextflow-20.10.0-brightgreen)
-![](https://img.shields.io/badge/can_use-conda-yellow.svg)
-![](https://img.shields.io/badge/can_use-docker-blue.svg)
-![](https://img.shields.io/badge/can_use-singularity-orange.svg)
+> [!IMPORTANT]
+> **Execution environment:** This extended pipeline was developed and run using **Docker**. **Conda and Singularity/Apptainer are not yet supported or validated for the newly developed STAR and RSeQC functionality.** Please use the Docker profile for workflows that enable these extensions. This limitation concerns the extended implementation, not necessarily the upstream RNAflow project.
 
-<!--[![Generic badge](https://img.shields.io/badge/Publication-bioRxiv-red.svg)](https://www.)-->
+## Origin and attribution
 
-## RNAflow - An effective and simple RNA-Seq differential gene expression pipeline using Nextflow<!-- omit in toc -->
+This repository is a derivative of **RNAflow** by the Hoelzer laboratory. For the original project's features, documentation, citation instructions, and history, please see **[the original RNAflow repository](https://github.com/hoelzer-science/rnaflow)**.
 
-![flow-chart](figures/workflow.jpg)
-*Figure 1.* Workflow. The user can decide after preprocessing to run a differential gene expression (DEG) analysis or a transcriptome assembly. Circles symbolize input data and download icons symbolize automated download of resources. Steps marked by asterisks are currently only available for some species. See [here](citations.md) for a list of references for the used tools and please consider to cite them as well.
+- Upstream RNAflow baseline used for development: `f2d26a3418adc10d24b5042ad653081a9500245b`.
 
-<details><summary><b>Table of Contents</b></summary>
+This README describes the extended differential-expression workflow. Other features inherited from upstream RNAflow, including transcriptome assembly, are not re-documented here; refer to the upstream project.
 
-- [Quick installation](#quick-installation)
-- [Quick start](#quick-start)
-  - [Start a test run](#start-a-test-run)
-  - [Call help](#call-help)
-  - [Update the pipeline](#update-the-pipeline)
-  - [Use a certain release](#use-a-certain-release)
-- [Usage](#usage)
-  - [Input files](#input-files)
-    - [Read files (required)](#read-files-required)
-    - [Genomes and annotation](#genomes-and-annotation)
-    - [Build-in species](#build-in-species)
-    - [Comparisons for DEG analysis](#comparisons-for-deg-analysis)
-  - [Resume your run](#resume-your-run)
-- [Workflow control](#workflow-control)
-  - [Preprocessing](#preprocessing)
-  - [DEG analysis](#deg-analysis)
-  - [Transcriptome assembly](#transcriptome-assembly)
-- [Profiles/configuration options](#profilesconfiguration-options)
-  - [Executor options...](#executor-options)
-  - [Engine options...](#engine-options)
-- [Monitoring](#monitoring)
-- [Output](#output)
-  - [DESeq2 results](#deseq2-results)
-- [Working offline](#working-offline)
-- [Help message](#help-message)
-- [Known bugs and issues](#known-bugs-and-issues)
-  - [Reference file name](#reference-file-name) 
-  - [Problems with `SortMeRNA`/ `HISAT2` error](#problems-with-sortmerna-hisat2-error-141-116)
-    - [Description](#description)
-    - [Workaround](#workaround)
-  - [Latency problems on HPCs, issue (#79)](#latency-problems-on-hpcs-issue-79)
-    - [Description](#description-1)
-    - [Workaround](#workaround-1)
-- [Citation](#citation)
+## Pipeline overview
 
-</details>
+![Overview of the extended RNAflow pipeline](assets/pipeline_overview.jpeg)
 
+*Pipeline overview showing the STAR/HISAT2 alignment options and RSeQC Gene Body Coverage. Additional RSeQC modules are described below but are not shown individually in this diagram.*
 
-## Quick installation
+The analysis proceeds through:
 
-The pipeline is written in [`Nextflow`](https://nf-co.re/usage/installation), which can be used on any POSIX compatible system (Linux, OS X, etc). Windows system is supported through [WSL](https://en.wikipedia.org/wiki/Windows_Subsystem_for_Linux). You need `Nextflow` installed and either `conda`, `Docker`, or `Singularity` to run the steps of the pipeline:
+1. **Preprocessing:** FastQC on raw reads → fastp trimming/filtering → FastQC on processed reads; optional SortMeRNA rRNA removal.
+2. **Alignment:** choose HISAT2 (original/default) or STAR (added), using a genome FASTA and gene annotation; produce sorted BAM and index files.
+3. **Post-alignment QC (optional):** invoke RSeQC analyses on alignment files, using suitable reference/annotation inputs where required.
+4. **Quantification and expression:** featureCounts → optional TPM-based filtering → DESeq2 differential expression analysis.
+5. **Downstream analysis and reporting:** inherited piano/WebGestalt pathway analysis options and MultiQC summaries, where supported by the chosen workflow.
 
-1. Install  `Nextflow`
-    <details><summary>click here for a bash one-liner </summary>
+## What's new in this extension?
 
-    ```bash
-    wget -qO- https://get.nextflow.io | bash
-    # In the case you don’t have wget
-    # curl -s https://get.nextflow.io | bash
-    ```
+### Optional STAR alignment
 
-    </details>
-1. Install [`conda`](https://conda.io/miniconda.html)
-    <details><summary>click here for a bash two-liner for Miniconda3 Linux 64-bit</summary>
+The original HISAT2 alignment branch is retained, while `--aligner star` selects an alternative STAR alignment branch. The genome index is generated for the selected aligner, and aligned data are passed to the existing downstream quantification and DEG analysis stages.
 
-    ```bash
-    wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-    bash Miniconda3-latest-Linux-x86_64.sh
-    ```
+| Parameter | Meaning | Default / behavior |
+| --- | --- | --- |
+| `--aligner hisat2` | Use the original HISAT2 alignment branch | **Default** if omitted |
+| `--aligner star` | Use the added STAR alignment branch | Opt-in |
 
-    </details>
+### Optional RSeQC modules (original paper: https://academic.oup.com/bioinformatics/article/28/16/2184/325191)
 
-OR
+Some RSeQC analyses (https://rseqc.sourceforge.net/) are controlled by the pipeline-level flag `--run_rseqc true`. When the flag is `false` or omitted, the added RSeQC workflow is skipped.
 
-1. Install `conda`
-    <details><summary>click here for a bash two-liner for Miniconda3 Linux 64-bit</summary>
+| RSeQC module / tool | Purpose | Key inputs and applicability |
+| --- | --- | --- |
+| `bam_stat.py` | Summary of alignment composition and mapping characteristics | Alignment BAM |
+| `read_duplication.py` | Estimates read duplication characteristics | Alignment BAM |
+| `geneBody_coverage.py` | Normalized 5′–3′ gene-body coverage; detects potential positional bias | Alignment BAM and transcript/gene-model BED |
+| `infer_experiment.py` | Infers library strandedness/orientation | Alignment BAM and reference gene-model BED |
+| `read_distribution.py` | Summarizes read assignment across annotated genomic features | Alignment BAM and compatible BED annotation |
+| `junction_saturation.py` | Assesses how splice-junction discovery changes with read subsampling | Spliced alignment BAM and compatible gene-model annotation; dependent on installed RSeQC version |
+| `inner_distance.py` | Estimates the inner distance between paired reads | **Paired-end** alignment BAM and compatible BED annotation; not applicable to single-end libraries |
 
-    ```bash
-    wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-    bash Miniconda3-latest-Linux-x86_64.sh
-    ```
+**Annotation preparation:** The development discussions describe GTF-to-BED conversion using `gtfToGenePred` and `genePredToBed` / equivalent implemented conversion utilities. Ensure the required executable(s) exist in the Docker image and that the resulting annotation has the expected BED12 format before enabling annotation-dependent analyses. The exact conversion process and file names should be checked against the current module scripts. A generic `gtf2bed.py` command must **not** be assumed to be present in every RSeQC image.
 
-    </details>
-1. Install `Nextflow` via `conda`
-    <details><summary>click here to see how to do that</summary>
+**Interpretation notes:** Gene-body bias can reflect library design, mRNA enrichment, degradation, or other technical effects; it is not automatically evidence of poor sequencing. Similarly, duplication and junction saturation depend on sequencing depth, library type, and genome/annotation characteristics.
 
-    ```bash
-    conda create -n nextflow -c bioconda nextflow
-    conda active nextflow
-    ```
+## Requirements
 
-    </details>
+- Linux environment with a working **Docker daemon** and permission to run containers.
+- **Nextflow** and a compatible Java runtime installed on the host.
+- Sufficient disk space for FASTQ files, indices, intermediate BAMs, Nextflow `work/`, and results.
+- Reference genome FASTA and matching gene annotation GTF/GFF for the organism being analyzed, unless using a supported upstream RNAflow download option.
 
-For transcriptome assembly you have to install also [`Docker`](https://docs.docker.com/engine/installation/) or [`Singularity`](https://github.com/hpcng/singularity/blob/master/INSTALL.md).
+**Development environment (not minimum system requirements):** Ubuntu 20.04.6 LTS (x86_64); 16 logical CPUs; 64 GB RAM; Nextflow 23.04.3; OpenJDK 11.0.13; Docker 28.1.1. The implemented tools included STAR 2.7.11b and RSeQC 4.0.0. Resource needs vary considerably with genome size, sample count, and selected modules. STAR genome indexing/alignment can require substantially more RAM than HISAT2.
 
-1. You can try to simply install `Singularity` via `conda` as well
-    <details><summary>click for an example command</summary>
+## Quick start (Docker)
 
-    ```bash
-    conda create -n singularity -c conda-forge singularity
-    conda active singularity
-    ```
-
-    or if you already have a conda environment for nextflow:
-
-    ```bash
-    conda activate nextflow
-    conda install -c conda-forge singularity
-    ```
-
-    </details>
-
-A system admin-configured `Singularity` installation should be preferred in comparison to an own local conda installation. Please ask your sys admin!
-
-All other dependencies and tools will be installed within the pipeline via `conda`, `Docker` or `Singularity` depending on the profile you run (see [below](#profiles/configuration-options)).
-
-## Quick start
-
-### Start a test run
+Run these commands **from the root directory of the cloned extended repository**, not from the upstream RNAflow repository:
 
 ```bash
-# conda active nextflow
-nextflow run hoelzer-lab/rnaflow -profile test,conda,local
+# Verify the execution environment
+nextflow -version
+docker --version
+docker info
+
+# Inspect the available arguments in this checkout
+nextflow run . --help
+
+# Run the extended workflow on prepared input files
+nextflow run . -profile docker,local \
+  --reads samples.csv \
+  --genome genome_files.csv \
+  --aligner star \
+  --run_rseqc true \
+  --max_cores 6 \
+  --cores 6 \
+  -resume
 ```
 
-... performs
+The `-profile docker,local` syntax, `--reads`, `--genome`, `--annotation`, `--max_cores`, and `--cores` options follow the RNAflow upstream CLI. The added flags `--aligner` and `--run_rseqc` are documented in the thesis. **Review your local `nextflow.config`, `main.nf`, and `--help` output before running:** this README was prepared from development notes and upstream documentation; the exact current contents of your modified repository were not supplied for code-level verification.
 
-- a differential gene expression analysis with sub-sampled human read data,
-- on a reduced human genome and annotation (chromosome 1, 10 and 11),
-- comparing two conditions (MAQCA, MAQCB),
-- with a local execution (uses max. 4 cores in total and 8GB) and
-- `conda` dependency management.
+To use the HISAT2 branch, substitute `--aligner hisat2` or omit `--aligner`. To skip RSeQC, use `--run_rseqc false` or omit the flag.
 
-<details><summary>Resource usage</summary>
+### Input samplesheet
 
-For a local test run (with 30 cores in total at maximum):
-
-```bash
-nextflow run hoelzer-lab/rnaflow -profile test,conda,local -w work \
---max_cores 30 --cores 10 --softlink_results -r master
-```
-
-we observed the following resource usage including downloads and `conda` environment creation for each process:
-
-<dl>
-<dt>Total runtime</dt>
-<dd>25m 56s</dd>
-<dt>Physical memory (RAM), max.</dt>
-<dd>3.015 GB at process <code>hisat2index</code></dd>
-<dt>Virtual memory (RAM + Disk swap), max.</dt>
-<dd>10.16 GB at process <code>hisat2</code></dd>
-</dl>
-
-A detailed HTML report automatically produced the pipeline can be found [here](test-data/execution_report.html).
-
-</details>
-
-### Call help
-
-```bash
-nextflow run hoelzer-lab/rnaflow --help
-```
-
-### Update the pipeline
-
-```bash
-nextflow pull hoelzer-lab/rnaflow
-```
-
-### Use a certain release
-
-We recommend to use a [stable release](https://github.com/hoelzer-lab/rnaflow/releases) of the pipeline:
-
-```bash
-nextflow pull hoelzer-lab/rnaflow -r <RELEASE>
-```
-
-
-## Usage
-
-```bash
-nextflow run hoelzer-lab/rnaflow --reads input.csv --autodownload hsa --pathway hsa --max_cores 6 --cores 2
-```
-
-with `--autodownload <hsa|mmu|ssc|mau|eco>` [build-in species](#build-in-species), or define your own genome reference and annotation files in CSV files:
-
-```bash
-nextflow run hoelzer-lab/rnaflow --reads input.csv --genome fastas.csv --annotation gtfs.csv --max_cores 6 --cores 2
-```
-
-Genomes and annotations from `--autodownload`, `--genome` and `--annotation` are concatenated.
-
-By default, all possible comparisons are performed. Use `--deg` to change this.
-
-`--pathway <hsa|mmu|mau|ssc>` performs downstream pathway analysis. Available are WebGestalt set enrichment analysis (GSEA) for `hsa`, `mmu` and `ssc`, piano GSEA with different settings and consensus scoring for `hsa`, `mmu`, `mau`, and `ssc`.
-
-### Input files
-
-#### Read files (required)
-
-Specify your read files in `FASTQ` format with `--reads input.csv`. The file `input.csv` has to look like this for single-end reads:
+RNAflow's original `--reads` format is CSV with this exact header:
 
 ```csv
 Sample,R1,R2,Condition,Source,Strandedness
-mock_rep1,/path/to/reads/mock1.fastq.gz,,mock,,0
-mock_rep2,/path/to/reads/mock2.fastq.gz,,mock,,0
-mock_rep3,/path/to/reads/mock3.fastq.gz,,mock,,0
-treated_rep1,/path/to/reads/treat1.fastq.gz,,treated,,0
-treated_rep2,/path/to/reads/treat2.fastq.gz,,treated,,0
-treated_rep3,/path/to/reads/treat3.fastq.gz,,treated,,0
+control_1,/absolute/path/control_1_R1.fastq.gz,/absolute/path/control_1_R2.fastq.gz,control,,0
+control_2,/absolute/path/control_2_R1.fastq.gz,/absolute/path/control_2_R2.fastq.gz,control,,0
+treated_1,/absolute/path/treated_1_R1.fastq.gz,/absolute/path/treated_1_R2.fastq.gz,treated,,0
+treated_2,/absolute/path/treated_2_R1.fastq.gz,/absolute/path/treated_2_R2.fastq.gz,treated,,0
 ```
 
-and for paired-end reads, like this:
+- `Sample`: unique sample label.
+- `R1`, `R2`: FASTQ paths. For single-end samples, leave `R2` blank.
+- `Condition`: experimental group for DEG comparisons. The upstream workflow expects at least two replicates per condition.
+- `Source`: optional sample/patient or paired-design label; leave blank if not applicable.
+- `Strandedness`: `0` = unstranded, `1` = forward stranded, `2` = reverse stranded, according to upstream RNAflow's convention. Set this to the actual library type.
 
-```csv
-Sample,R1,R2,Condition,Source,Strandedness
-mock_rep1,/path/to/reads/mock1_1.fastq,/path/to/reads/mock1_2.fastq,mock,A,0
-mock_rep2,/path/to/reads/mock2_1.fastq,/path/to/reads/mock2_2.fastq,mock,B,0
-mock_rep3,/path/to/reads/mock3_1.fastq,/path/to/reads/mock3_2.fastq,mock,C,0
-treated_rep1,/path/to/reads/treat1_1.fastq,/path/to/reads/treat1_2.fastq,treated,A,0
-treated_rep2,/path/to/reads/treat2_1.fastq,/path/to/reads/treat2_2.fastq,treated,B,0
-treated_rep3,/path/to/reads/treat3_1.fastq,/path/to/reads/treat3_2.fastq,treated,C,0
+All FASTQ and reference paths must be accessible to Docker from the execution host. Use absolute paths where practical. For meaningful biological inference, do not treat independently subsampled FASTQs from the same library as independent biological replicates.
+
+### Reference files
+
+The upstream `--genome` and `--annotation` parameters accept **one file path per line**, for example:
+
+`genome_files.csv`:
+
+```text
+/absolute/path/reference_genome.fa
 ```
 
-The first line is a required header. Read files can be compressed (`.gz`). You need at least two replicates for each condition to run the pipeline. Source labels are optional - the header is still required, the value can be empty as in the single-end example above. Source labels can be used to define the corresponding experiment even more precisely for improved differential expression testing, e.g. if RNA-Seq samples come from different `Condition`s (e.g. tissues) but the same `Source`s (e.g. patients). Still, the comparison will be performed between the `Condition`s but the `Source` information is additionally used in designing the DESeq2 experiment. Source labels also extend the heatmap sample annotation. Strandedness for the samples can optionally be defined directly in the csv or via the commandline parameter `--strand`. Where the strandedness column can be any value from: 0 = unstranded, 1 = stranded, 2 = reversely stranded, [default: 0]. Note that if strandedness is provided via the input CSV and the commandline parameter, the value from the command line will be used for the run.
+`annotation_files.csv`:
 
-#### Genomes and annotation
-
-If you don't use one of the [build-in species](#build-in-species), specify your genomes via `--genome fastas.csv`, with `fastas.csv` looking like this:
-
-```
-/path/to/reference_genome1.fasta
-/path/to/reference_genome2.fasta
+```text
+/absolute/path/reference_annotation.gtf
 ```
 
-and `--annotation gtfs.csv` with `gtfs.csv` looking like this:
+Use matching genome and annotation releases and compatible sequence naming (e.g., `chr1` versus `1`). Annotation-dependent RSeQC functions require a suitable BED conversion; a GTF file alone is not a direct substitute for the expected RSeQC BED input.
 
-```
-/path/to/reference_annotation_1.gtf
-/path/to/reference_annotation_2.gtf
-```
-
-You can add a [build-in species](#build-in-species) to your defined genomes and annotation with `--autodownload xxx`.
-
-#### Build-in species
-
-We provide a small set of build-in species for which the genome and annotation files are automatically downloaded from [Ensembl](https://www.ensembl.org/index.html) with `--autodownload xxx`. Please let us know, we can easily add other species.
-
-| Species      | three-letter shortcut | Annotation                              | Genome                                    |
-| ------------ | --------------------- | ----------------------------------- | --------------------------------------------- |
-| Homo sapiens | `hsa` <sup>*</sup>               | Homo_sapiens.GRCh38.98              | Homo_sapiens.GRCh38.dna.primary_assembly      |
-| Mus musculus | `mmu` <sup>*</sup>               | Mus_musculus.GRCm38.99              | Mus_musculus.GRCm38.dna.primary_assembly      |
-| Sus scrofa   | `ssc` <sup>*</sup>               | Sus_scrofa.Sscrofa11.1.111              | Sus_scrofa.Sscrofa11.1.dna.toplevel      |
-| Mesocricetus auratus | `mau` <sup>*</sup>               | Mesocricetus_auratus.MesAur1.0.100  | Mesocricetus_auratus.MesAur1.0.dna.toplevel   |
-| Escherichia coli | `eco`                 | Escherichia_coli_k_12.ASM80076v1.45 | Escherichia_coli_k_12.ASM80076v1.dna.toplevel |
-
-<sup>*</sup> Downstream pathway analysis availible via `--pathway xxx`.
-
-#### Multiple-mapped reads
-To adjust the handling of multiple-mapped reads during the feature counting process you can use:
-`--featurecounts_additional_params '-t exon -g gene_id -M'`
-The default handling is to only count uniquely mapped reads via `featureCounts`. With the above flag set `featureCounts` will also count multi-mapped reads.
-
-#### Comparisons for DEG analysis
-
-Per default, all possible pairwise comparisons _in one direction_ are performed. Thus, when _A_ is compared against _B_ the pipeline will not automatically compare _B_ vs. _A_ which will anyway only change the direction of the finally resulting fold changes. To change this, please define the needed comparison with `--deg comparisons.csv`, where each line contains a pairwise comparison:
-
-```csv
-Condition1,Condition2
-conditionX,conditionY
-conditionA,conditionB
-conditionB,conditionA
-```
-
-The first line is a required header. 
-
-### Resume your run
-
-You can easily resume your run in case of changes to the parameters or inputs. Nextflow will try to not recalculate steps that are already done:
-
-```
-nextflow run hoelzer-lab/rnaflow -profile test,conda,local -resume
-```
-
-Nextflow will need access to the working directory where temporary calculations are stored. Per default, this is set to `work` but can be adjusted via `-w /path/to/any/workdir`. In addition, the `.nextflow.log` file is needed to resume a run, thus, this will only work if you resume the run from the same folder where you started it. 
-
-## Workflow control
-
-### Preprocessing
+### Optional configuration examples
 
 ```bash
---skip_sortmerna                       # skip rRNA removal via SortMeRNA [default false]
---skip_read_preprocessing              # skip preprocessing with fastp [default: false]
---fastp_additional_params              # additional parameters for fastp [default '-5 -3 -W 4 -M 20 -l 15 -x -n 5 -z 6']
---hisat2_additional_params             # additional parameters for HISAT2
---featurecounts_additional_params      # additional parameters for FeatureCounts [default: -t gene -g gene_id]
+# Default/original alignment, with the added RSeQC steps disabled
+nextflow run . -profile docker,local \
+  --reads samples.csv --genome genome_files.csv --annotation annotation_files.csv \
+  --aligner hisat2 --run_rseqc false
+
+# STAR alignment with the optional RSeQC workflow enabled
+nextflow run . -profile docker,local \
+  --reads samples.csv --genome genome_files.csv --annotation annotation_files.csv \
+  --aligner star --run_rseqc true
+
+# Avoid repeating completed tasks when resuming the same run
+nextflow run . -profile docker,local \
+  --reads samples.csv --genome genome_files.csv --annotation annotation_files.csv \
+  --aligner star --run_rseqc true -resume
 ```
 
-### DEG analysis
+Other inherited upstream RNAflow controls include `--skip_sortmerna`, `--skip_read_preprocessing`, `--deg`, `--tpm`, and `--featurecounts_additional_params`. Refer to the [original RNAflow documentation](https://github.com/hoelzer-science/rnaflow) for their full usage and semantics; do not assume the same defaults in every custom revision.
 
-```bash
---strand                        # strandness for counting with featureCounts: 0 (unstranded), 1 (stranded) and 2 (reversely stranded) [default 0]
---tpm                           # threshold for TPM (transcripts per million) filter [default 1]
---deg                           # a CSV file following the pattern: conditionX,conditionY
---pathway                       # perform different downstream pathway analysis for the species hsa|mmu|mau|ssc
---feature_id_type               # ID type for downstream analysis [default: ensembl_gene_id]
-```
+## Expected outputs and quality-control guidance
 
-### Transcriptome assembly
+Output paths depend on the current workflow implementation and configured results directory. Look for the following **types** of results rather than treating the illustrative labels below as guaranteed exact folder names:
 
-```bash
---assembly                      # switch to transcriptome assembly
---busco_db                      # BUSCO database ['euarchontoglires' or path to existing DB]
---dammit_uniref90               # add UniRef90 to dammit databases, takes long [false]
---rna                           # activate directRNA mode for ONT transcriptome assembly [default: false (cDNA)]
-```
+| Stage | Outputs / checks |
+| --- | --- |
+| FastQC / fastp | Raw and trimmed read quality, adapters, trimming statistics |
+| SortMeRNA, if enabled | rRNA filtering logs / processed reads |
+| HISAT2 or STAR | Alignment log/summary, coordinate-sorted BAM and BAI |
+| RSeQC `bam_stat` | Alignment summary statistics |
+| RSeQC `read_duplication` | Duplicate-read metrics and associated plots/data |
+| RSeQC `geneBody_coverage` | Gene-body coverage tables and/or plots from 5′ to 3′ |
+| RSeQC `infer_experiment` | Estimates of read orientation relative to annotated genes |
+| RSeQC `read_distribution` | Distribution across exonic, intronic, and other annotated regions |
+| RSeQC `junction_saturation` | Splice-junction saturation output/plots |
+| RSeQC `inner_distance` | Paired-read insert/inner-distance distribution |
+| featureCounts | Gene-level count matrix and assignment summary |
+| DESeq2 | Differential gene-expression tables and diagnostic plots |
+| MultiQC | Combined QC report for supported tools and formats |
 
-## Profiles/configuration options
+**MultiQC coverage depends on its version and parser compatibility.** Do not presume every RSeQC module appears automatically in MultiQC unless its output has been explicitly incorporated and tested. Individual RSeQC result files can remain useful even if absent from the combined MultiQC report.
 
-Per default, the pipeline is locally executed with `conda` dependency management (corresponds to `-profile local,conda`). Adjust this setting by combining an _executer_ option with an _engine_ option, e.g. `-profile local,conda` or `-profile slurm,conda`. We also provide container support, see [below](#engine-options...).
+### Basic QC interpretation
 
-### Executor options...
+1. Review raw and trimmed FastQC/fastp plots before evaluating downstream alignment quality.
+2. Check aligner summaries, uniquely mapped reads, and assignment percentages; unexpected changes can signal a mismatched genome/annotation or unsuitable read inputs.
+3. Compare gene-body coverage **across comparable library preparations** and alongside other QC metrics.
+4. Examine `infer_experiment` before assuming the correct strandedness setting for featureCounts.
+5. Apply `inner_distance` only when the library is paired-end; interpret duplication and junction saturation relative to library preparation and sequencing depth.
+6. Inspect the DESeq2 design, biological replication, and count filtering before interpreting DEGs.
 
-*... or how to schedule your workload.*
+## Troubleshooting
 
-Currently implemented are `local`, `slurm` and `lsf` executions.
+**Docker process fails or cannot access files.** Confirm Docker is running (`docker info`) and that all FASTQ, genome, and annotation paths are readable from the host and accessible to Docker. Ensure sufficient storage for `work/` and image pulls.
 
-You can customize `local` with this parameters:
+**STAR index fails or the process is killed.** Examine RAM use and Nextflow process logs. Whole-genome STAR indices can demand substantially more memory than HISAT2 indices; use appropriately sized hardware and check process resource limits.
 
-```bash
---cores                         # cores for one process [default 1]
---max_cores                     # max. cores used in total [default allAvailable]
---memory                        # max. memory in GB for local use [default 8 GB]
-```
+**An RSeQC module reports a missing BED or conversion command.** Verify that GTF-to-BED conversion ran successfully, that BED12 features are compatible with the RSeQC tool, and that conversion executables are installed in the **actual Docker image used by the process**. Do not rely on a conversion executable from the host being present inside the container.
 
-### Engine options...
+**`--run_rseqc false` still causes an RSeQC process/output error.** In Nextflow, outputs of skipped processes must not be referenced unconditionally. Inspect module wiring for conditional invocation and initialized empty channels. This is a development/debugging check rather than a user-facing option.
 
-*... or in which environment to run the tools.*
+**RSeQC plots missing from MultiQC.** Look for the original RSeQC files first; MultiQC integration may require per-module parser support, naming conventions, or explicitly included result channels.
 
-Currently implemented are `conda`, `Docker` and `Singularity`. For transcriptome assembly some tools need to be run with `Docker` or `Singularity`.
+**Conda/Singularity execution fails.** For extended STAR/RSeQC operations, switch to the tested `-profile docker,local` configuration. The extended modules have not yet been adapted and validated for these alternate environments.
 
-You can switch between different engines via `-profile`, for example:
+**Cannot resume a previous analysis.** Use `-resume` from the same project execution context with access to the previous Nextflow cache and `work/` directory. Changed inputs or scripts may correctly trigger re-execution.
 
-```
-nextflow run hoelzer-lab/rnaflow -profile test,local,conda
-nextflow run hoelzer-lab/rnaflow -profile test,local,docker
-nextflow run hoelzer-lab/rnaflow -profile test,slurm,singularity
-```
+## Reproducibility and limitations
 
-As a __best practice__ for a local execution, we recommend to run the pipeline with `--cores 1 --max_cores 1` the first time you use `Singularity`, because we experienced issues when generating the `Singularity` images in parallel the first time the pipeline is executed with this engine option. It is also possible to run the pipeline once with `--setup` set. In setup mode all the necessary files (DBs, reference files and images) are being downloaded and set up.
+- Record the current Git commit, Nextflow version, Docker images and tags/digests, command line, reference genome/annotation release, and relevant input metadata in each analysis.
+- **Docker-only for the extension:** the additional STAR/RSeQC features have not been validated under Conda or Singularity/Apptainer.
+- **Module availability can vary by development revision:** confirm the RSeQC processes enabled in the checked-out workflow before running.
+- **Not all extra QC modules are appropriate for every library:** e.g., paired-read inner distance requires paired-end data, while gene-body coverage is library-design-dependent.
+- Recheck workflow flags and paths against the current checkout before relying on these instructions, since the complete developed repository code was not supplied when drafting this README.
 
-You can customize where `conda` environments are stored using
+## Citation and license
 
-```bash
---condaCacheDir /path/to/dir
-```
+This project builds on the original [RNAflow repository](https://github.com/hoelzer-science/rnaflow). Please cite RNAflow and the relevant third-party tools according to the upstream project's [citation guidance](https://github.com/hoelzer-science/rnaflow/blob/master/citations.md).
 
-and where `Singularity` images are stored via
-
-```bash
---singularityCacheDir /path/to/dir
-```
-
-`Docker` images are stored based on your system configuration.
-
-## Monitoring
-
-<img align="right" width="400px" src="figures/tower.png" alt="Monitoring with Nextflow Tower" /> 
-
-To monitor your computations the pipeline can be connected to [Nextflow Tower](https://tower.nf). You need an user access token to connect your Tower account with the pipeline. Simply [generate a login](https://tower.nf/login) using your email and then click the link send to this address.
-
-> "Nextflow Tower does not require a password or registration procedure. Just provide your email address and we'll send you an authentication link to login. That's all!"
-
-Once logged in, click on your avatar on the top right corner and select "Your tokens". Generate a token or copy the default one and set the environment variable:
-
-```bash
-export TOWER_ACCESS_TOKEN=<YOUR_COPIED_TOKEN>
-export NXF_VER=20.10.0
-```
-
-You can save this command to your `.bashrc` or `.profile` to not need to enter it again.
-
-Now run:
-
-```bash
-nextflow run hoelzer-lab/rnaflow -profile test,local,conda -with-tower
-```
-
-Alternatively, you can also activate the Tower connection within the `nextflow.config` file located in the root GitHub directory:
-
-```java
-tower {
-    accessToken = ''
-    enabled = true
-} 
-```
-
-You can also directly enter your access token here instead of generating the above environment variable.
-
-## Output
-
-The result folder is structured by each step and tool (`results/step/tool`) as follows:
-
-```
-results/
-├── 01-Trimming
-│   └── fastp                   trimmed reads
-├── 02-rRNARemoval
-│   └── SortMeRNA               rRNA-free (and trimmed) reads
-├── 03-Mapping
-│   └── HISAT2                  mapping results in BAM format with index files (BAI)
-├── 04-Counting
-│   └── featureCounts           counting table
-├── 05-CountingFilter
-│   └── TPM                     counting table with additional TPM value; formatted counting table filtered by TPM
-├── 06-Annotation               filtered annotation; gene id, name and bio type mapping
-├── 07-DifferentialExpression
-│   └── DESeq2                  see below
-├── 08-Assembly
-│   └── de_novo
-│      └── Trinity              Trinity assembly  (with --assembly)
-├── 09-RNA-Seq_Annotation       BUSCO, dammit and StringTie2 results (with --assembly)
-├── Logs                        Nextflow execution timeline and workflow report
-└── Summary                     MultiQC report
-```
-
-Please note, that `08-Assembly` and `09-RNA-Seq_Annotation` are part of the transcriptome assembly branch (`--assembly`). Here, steps `04` to `07` are currently not applicable.
-
-### DESeq2 results
-
-The `DESeq2` result is structured as follows:
-
-```
-07-DifferentialExpression/
-└── DESeq2
-   ├── data                         
-   │   ├── counts                   normalized, transformed counts; size factors table
-   │   └── input                    DESeq2 input summary
-   ├── deseq2.Rout                  R log file
-   ├── MAQCA_vs_MAQCB               results for pairwise comparison (here exemplarily for the -profile test data set)
-   │   ├── downstream_analysis  
-   │   │   ├── piano                piano results
-   │   │   └── WebGestalt           WebGestalt results
-   │   ├── input                    DESeq2 input summary
-   │   ├── plots
-   │   │   ├── heatmaps
-   │   │   ├── MA
-   │   │   ├── PCA
-   │   │   ├── sample2sample
-   │   │   └── volcano
-   │   ├── reports                  DESeq2 result HTML table; summary report
-   │   └── results                  raw and filtered DESeq2 result in CSV and XLSX format; DEG analysis summary
-   └── plots                        heatmaps and PCA of all samples
-```
-
-We provide `DESeq2` normalized, regularized log (rlog), variance stabilized (vsd) and log2(n+1) (ntd) transformed count tables (`DESeq2/data/counts`).
-
-For each comparison (specified with `--deg` or, per default, all possible pairwise comparisons in one direction), a new folder `X_vs_Y` is created. This also describes the direction of the comparison, e.g., the log2FoldChange describes the change of a gene A under condition Y with respect to the gene under condition X. For example, a log2FoldChange of +2 for gene A would tell you that this gene is 2-fold upregulated when we compare condition X vs. condition Y. The gene A is higher expressed in samples belonging to condition X.
-
-Downstream analysis (`--pathway xxx`) are currently provided for some species: GSEA consensus scoring with `piano` for *Homo sapiens* (`hsa`), *Mus musculus* (`mmu`), *Mesocricetus auratus* (`mau`), and *Sus scofa* (`ssc`); and `WebGestalt` GSEA for *Homo sapiens*, *Mus musculus*, and *Sus scrofa*.
-
-## Working offline
-
-In case you don't have an internet connection, here is a workaround to [this issue](https://github.com/hoelzer-lab/rnaflow/issues/102) for manual download and copying of external recourses:
-
-- Genomes and annotation can also be specified via `--genome` and `--annotation`, see [here](#genomes-and-annotation).
-- For `BUSCO` it is a simple download, see [here](modules/buscoGetDB.nf) with `busco_db = 'euarchontoglires_odb9'` as default.
-- For `SortMeRNA` and `dammit` the tools must be installed. Version specifications can be found [here](envs/sortmerna.yaml) and [there](envs/dammit.yaml), the code to create the databases [here](modules/sortmernaGet.nf) and [there](modules/dammitGetDB.nf) with `busco_db = 'euarchontoglires_odb9'` `dammit_uniref90 = false` as default.
-- Downstream analysis with `piano` and `WebGestalt` currently need an internet connection in any case. If no connection is available `piano` and `WebGestalt` are skipped.
-
-<details><summary>RNAflow looks up the files here:</summary>
-
-```
-nextflow-autodownload-databases     # default: `permanentCacheDir = 'nextflow-autodownload-databases'`
-└── databases
-    └── busco
-        └── <busco_db>.tar.gz
-    └── dammit
-        └── <busco_db>.tar.gz
-        └── uniref90                # in case of `dammit_uniref90 = true`
-            └── <busco_db>.tar.gz
-    └── sortmerna
-        └── data
-            └── rRNA_databases
-```
-
-</details>
-
-## Help message
-
-<details><summary>click here to see the complete help message</summary>
-
-```
-Usage examples:
-nextflow run hoelzer-lab/rnaflow -profile test,local,conda
-nextflow run hoelzer-lab/rnaflow --cores 4 --reads input.csv --autodownload mmu --pathway mmu
-nextflow run hoelzer-lab/rnaflow --cores 4 --reads input.csv --autodownload eco --assembly
-nextflow run hoelzer-lab/rnaflow --cores 4 --reads input.csv --genome fasta_virus.csv --annotation gtf_virus.csv --autodownload hsa --pathway hsa
-Genomes and annotations from --autodownload, --genome and --annotation are concatenated.
-
-Input:
---reads                  A CSV file following the pattern: Sample,R1,R2,Condition,Source,Strandedness - read mode is detected automatically
-                                    (check terminal output if correctly assigned)
-                                    Per default, all possible comparisons of conditions in one direction are made. Use --deg to change.
---autodownload           Specifies the species identifier for automated download [default: ]
-                                    Currently supported are:
-                                    - hsa [Ensembl: Homo_sapiens.GRCh38.dna.primary_assembly | Homo_sapiens.GRCh38.98]
-                                    - eco [Ensembl: Escherichia_coli_k_12.ASM80076v1.dna.toplevel | Escherichia_coli_k_12.ASM80076v1.45]
-                                    - mmu [Ensembl: Mus_musculus.GRCm38.dna.primary_assembly | Mus_musculus.GRCm38.99.gtf]
-                                    - ssc [Ensembl: Sus_scrofa.Sscrofa11.1.dna.toplevel | Sus_scrofa.Sscrofa11.1.111 ]
-                                    - mau [Ensembl: Mesocricetus_auratus.MesAur1.0.dna.toplevel | Mesocricetus_auratus.MesAur1.0.100]
---species                Specifies the species identifier for downstream path analysis. (DEPRECATED)
-                         If `--include_species` is set, reference genome and annotation are added and automatically downloaded. [default: ]
-                                    Currently supported are:
-                                    - hsa [Ensembl: Homo_sapiens.GRCh38.dna.primary_assembly | Homo_sapiens.GRCh38.98]
-                                    - eco [Ensembl: Escherichia_coli_k_12.ASM80076v1.dna.toplevel | Escherichia_coli_k_12.ASM80076v1.45]
-                                    - mmu [Ensembl: Mus_musculus.GRCm38.dna.primary_assembly | Mus_musculus.GRCm38.99.gtf]
-                                    - mau [Ensembl: Mesocricetus_auratus.MesAur1.0.dna.toplevel | Mesocricetus_auratus.MesAur1.0.100]
---genome                 CSV file with genome reference FASTA files (one path in each line)
-                                    If set, --annotation must also be set.
---annotation             CSV file with genome annotation GTF files (one path in each line)
---include_species        Either --species or --genome/--annotation need to be used. Both input seetings can be also combined to use genome and annotation of 
-                         supported species in addition to --genome and --annotation [default: false]
-
-Preprocessing options:
---fastp_additional_params          additional parameters for fastp [default: -5 -3 -W 4 -M 20 -l 15 -x -n 5 -z 6]
---skip_sortmerna                   skip rRNA removal via SortMeRNA [default: false] 
---skip_read_preprocessing          skip preprocessing with fastp [default: false]
---hisat2_additional_params         additional parameters for HISAT2 [default: ]
---featurecounts_additional_params  additional parameters for FeatureCounts [default: -t gene -g gene_id]
-
-DEG analysis options:
---strand                 0 (unstranded), 1 (stranded) and 2 (reversely stranded) [default: 0]
-                         This will overwrite the optional strandedness defined in the input CSV file.
---tpm                    Threshold for TPM (transcripts per million) filter. A feature is discared, if for all conditions the mean TPM value of all 
-                         corresponding samples in this condition is below the threshold. [default: 1]
---deg                    A CSV file following the pattern: conditionX,conditionY
-                         Each line stands for one differential gene expression comparison.  
-                         Must match the 'Condition' labels defined in the CSV file provided via --reads.  
---pathway                Perform different downstream pathway analysis for the species. [default: ]
-                         Currently supported are:
-                             - hsa | Homo sapiens
-                             - mmu | Mus musculus
-                             - mau | Mesocricetus auratus
-                             - ssc | Sus scrofa
---feature_id_type        ID type for downstream analysis [default: ensembl_gene_id]                            
-
-Transcriptome assembly options:
---assembly               Perform de novo and reference-based transcriptome assembly instead of DEG analysis [default: false]
---busco_db               The database used with BUSCO [default: euarchontoglires_odb9]
-                         Full list of available data sets at https://busco-data.ezlab.org/v5/data/lineages/ 
---dammit_uniref90        Add UniRef90 to the dammit databases (time consuming!) [default: false]
---rna                    Activate directRNA mode for ONT transcriptome assembly [default: false (cDNA)]
-
-Computing options:
---cores                  Max cores per process for local use [default: 1]
---max_cores              Max cores used on the machine for local use [default: 4]
---memory                 Max memory in GB for local use [default: 8 GB]
---output                 Name of the result folder [default: results]
-
-Caching:
---permanentCacheDir      Location for auto-download data like databases [default: nextflow-autodownload-databases]
---condaCacheDir          Location for storing the conda environments [default: conda]
---singularityCacheDir    Location for storing the singularity images [default: singularity]
---workdir                Working directory for all intermediate results [default: null] (DEPRECATED: use `-w your/workdir` instead)
---softlink_results       Softlink result files instead of copying.
---setup                  Download all necessary DB, reference and image files without running the pipeline. [default: false]
-
-Nextflow options:
--with-tower              Activate monitoring via Nextflow Tower (needs TOWER_ACCESS_TOKEN set).
--with-report rep.html    CPU / RAM usage (may cause errors).
--with-dag chart.html     Generates a flowchart for the process tree.
--with-timeline time.html Timeline (may cause errors).
-
-Execution/Engine profiles:
-The pipeline supports profiles to run via different Executers and Engines e.g.: -profile local,conda
-
-Executer (choose one):
-  local
-  slurm
-  lsf
-  latency
-
-Engines (choose one):
-  conda
-  mamba
-  docker
-  singularity
-
-Per default: -profile local,conda is executed. 
-
-For a test run (~ 15 min), add "test" to the profile, e.g. -profile test,local,conda.
-The command will create all conda environments and download and run test data.
-
-We also provide some pre-configured profiles for certain HPC environments:    
-  ara (slurm, conda and parameter customization)
-```
-
-</details>
-
-## Known bugs and issues
-
-### Don't name your reference genome file `reference.fa`
-
-Internally, this will cause problems because of how RNAflow renames the file for processing. Please use another name (anyway, it's a good idea to be more descriptive in your file names). 
-
-### Problems with `SortMeRNA`/ `HISAT2` error ([#141](https://github.com/hoelzer-lab/rnaflow/issues/141), [#116](https://github.com/hoelzer-lab/rnaflow/issues/116))
-
-#### Description
-
-The pipeline fails with something like 
- 
-<details><summary>this</summary>
-
-```
-Error executing process > 'preprocess:hisat2 (2)'
-
-Caused by:
-  Missing output file(s) `22_rep4_summary.log` expected by process `preprocess:hisat2 (2)`
-
-Command executed:
-
-  hisat2 -x reference -1 22_rep4.R1.other.fastq.gz -2 22_rep4.R2.other.fastq.gz -p 60 --new-summary --summary-file 22_rep4_summary.log  | samtools view -bS | samtools sort -o 22_rep4.sorted.bam -T tmp --threads 60
-
-Command exit status:
-  0
-
-Command output:
-  (empty)
-
-Command error:
-  Error: Read AFFFJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ has more quality values than read characters.
-  terminate called after throwing an instance of 'int'
-  Aborted (core dumped)
-  (ERR): hisat2-align exited with value 134
-  [bam_sort_core] merging from 0 files and 60 in-memory blocks...
-  grep: warning: GREP_OPTIONS is deprecated; please use an alias or script
-  
-Work dir:
-  /tmp/nextflow-work-as11798/2f/4a5b7060530705c2697bdf3eec73a4
-
-Tip: when you have fixed the problem you can continue the execution adding the option `-resume` to the run command line
-```
-
-</details>
-
-- Often encountered when running in `screen` or `tmux`
-- Nextflow's `-bg` option does not help
-
-#### Workaround
-
-- Skip `SortMeRNA` with `--skip_sortmerna`
-- Reads can be cleand beforhand e.g. with [CLEAN](https://github.com/hoelzer/clean)
-
-#### Description
-
-The pipeline fails with something like 
- 
-<details><summary>this</summary>
-
-```
-ERROR ~ Error executing process > 'preprocess_illumina:hisat2 (mock_rep3)'
-
-Caused by:
-  Missing output file(s) `mock_rep3_summary.log` expected by process `preprocess_illumina:hisat2 (mock_rep3)`
-
-
-Command executed:
-
-  hisat2 -x reference -U mock_rep3.other.fastq.gz -p 24 --new-summary --summary-file mock_rep3_summary.log  | samtools view -bS | samtools sort -o mock_rep3.sorted.bam -T tmp --threads 24
-
-Command exit status:
-  0
-
-Command output:
-  (empty)
-
-Command error:
-  (ERR): mkfifo(/tmp/42.unp) failed.
-  Exiting now ...
-```
-</details>
-
-* this is very likely because of `HISAT2` creating tmp directories with the same name (https://github.com/DaehwanKimLab/hisat2/issues/438)
-* causing trouble when executing `HISAT2` processes in parallel
-* to avoid this, a `--temp-directory` parameter was added to `HISAT2` but only in a non-release version of the tool
-* we might fix this in future versions of the pipeline by using an `HISAT2` container without a proper release number but a git tag or so
-* however, then this will still be a potential problem when using the conda profile where we rely on released tool versions on bioconda
-
-#### Workaround
-
-* if you encounter that problem, try running the pipeline **without** parallel executions
-* use the `local` profile instead of a cluster profile such as `slurm`
-* specify something like `--max_cores 24 --cores 24` to prevent parallel executions
-
-### Latency problems on HPCs, issue ([#79](https://github.com/hoelzer-lab/rnaflow/issues/79))
-
-#### Description
-
-Latency-related problems with `Nextflow` might occur when running on HPC systems, where `Nextflow` expects files to be available before they are fully written to the file system. In these cases, `Nextflow` might get stuck or report missing output or input files to some processes:
- 
-
-```
-ERROR ~ Error executing process > 'some_process'
-
-Caused by:
- Missing output file(s) `some_process.out` expected by process `some_process`
-
-```
-
-
-- Often encountered when running on HPC systems
-
-
-#### Workaround
-Please try running the pipeline with the `latency` profile activated, just add it to the profiles you already defined:
-
-```
--profile slurm,conda,latency
-```
-
-## Citation 
-
-If you use RNAflow please cite: 
-
-* [RNAflow](https://hoelzer-lab.github.io/publications)
-> Marie Lataretu and Martin Hölzer. "RNAflow: An effective and simple RNA-Seq differential gene expression pipeline using Nextflow". Genes 2020, 11(12), 1487; https://doi.org/10.3390/genes11121487
-<!-- ## Help message
-```
-``` -->
-
-<!-- # Flow chart
-
-![flow-chart](figures/chart.png) -->
+The upstream RNAflow repository is licensed under **GPL-3.0**. Retain the upstream license file and applicable attribution/notices in the derivative repository; see [`LICENSE`](LICENSE) for the repository's applicable license text.
