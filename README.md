@@ -1,9 +1,9 @@
 # Extended RNAflow: A Nextflow Pipeline for Bulk RNA-seq Differential Gene Expression Analysis
 
-An extended version of [RNAflow](https://github.com/hoelzer-science/rnaflow), developed to provide **alternative splice-aware read alignment with STAR or HISAT2** and **additional post-alignment RNA-seq quality assessment with RSeQC**. The workflow retains the core RNAflow approach to preprocessing, gene-level quantification, differential expression analysis, and reporting.
+An extended version of [RNAflow](https://github.com/hoelzer-science/rnaflow), developed to provide **alternative splice-aware read alignment with STAR or HISAT2** and some **additional post-alignment RNA-seq quality assessment with RSeQC** (not full). The workflow retains the core RNAflow approach to preprocessing, gene-level quantification, differential expression analysis, and reporting.
 
 > [!IMPORTANT]
-> **Execution environment:** This extended pipeline was developed and run using **Docker**. **Conda and Singularity/Apptainer are not yet supported or validated for the newly developed STAR and RSeQC functionality.** Please use the Docker profile for workflows that enable these extensions. This limitation concerns the extended implementation, not necessarily the upstream RNAflow project.
+> This extended pipeline was developed and run using **Docker**. **Conda and Singularity/Apptainer are not yet supported or validated for the newly developed STAR and RSeQC functionality.** Please use the Docker profile for workflows that enable these extensions. This limitation concerns the extended implementation, not necessarily the upstream RNAflow project.
 
 ## Origin and attribution
 
@@ -17,7 +17,7 @@ This README describes the extended differential-expression workflow. Other featu
 
 ![Overview of the extended RNAflow pipeline](figures/developed_pipeline_overview.jpg)
 
-*Fig 1. Pipeline overview showing the STAR/HISAT2 alignment options and RSeQC Gene Body Coverage.*
+*Fig 1. Pipeline overview shows the STAR/HISAT2 alignment options and RSeQC's modules.*
 
 The analysis proceeds through:
 
