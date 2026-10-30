@@ -61,9 +61,7 @@ Some RSeQC analyses (https://rseqc.sourceforge.net/) are controlled by the pipel
 - Linux environment with a working **Docker daemon** and permission to run containers.
 - **Nextflow** and a compatible Java runtime installed on the host.
 - Sufficient disk space for FASTQ files, indices, intermediate BAMs, Nextflow `work/`, and results.
-- Reference genome FASTA and matching gene annotation GTF/GFF for the organism being analyzed, unless using a supported upstream RNAflow download option.
-
-**Development environment (not minimum system requirements):** Ubuntu 20.04.6 LTS (x86_64); 16 logical CPUs; 64 GB RAM; Nextflow 23.04.3; OpenJDK 11.0.13; Docker 28.1.1. The implemented tools included STAR 2.7.11b and RSeQC 4.0.0. Resource needs vary considerably with genome size, sample count, and selected modules. STAR genome indexing/alignment can require substantially more RAM than HISAT2.
+- Reference genome FASTA and matching gene annotation GTF/GFF for the organism being analyzed, unless using a supported upstream RNAflow download RNAflow option.
 
 ## Quick start (Docker)
 
@@ -88,9 +86,6 @@ nextflow run . -profile docker,local \
   --cores 6 \
   -resume
 ```
-
-The `-profile docker,local` syntax, `--reads`, `--genome`, `--annotation`, `--max_cores`, and `--cores` options follow the RNAflow upstream CLI. The added flags `--aligner` and `--run_rseqc` are documented in the thesis. **Review your local `nextflow.config`, `main.nf`, and `--help` output before running:** this README was prepared from development notes and upstream documentation; the exact current contents of your modified repository were not supplied for code-level verification.
-
 To use the HISAT2 branch, substitute `--aligner hisat2` or omit `--aligner`. To skip RSeQC, use `--run_rseqc false` or omit the flag.
 
 ### Input samplesheet
@@ -99,10 +94,10 @@ RNAflow's original `--reads` format is CSV with this exact header:
 
 ```csv
 Sample,R1,R2,Condition,Source,Strandedness
-control_1,/absolute/path/control_1_R1.fastq.gz,/absolute/path/control_1_R2.fastq.gz,control,,0
-control_2,/absolute/path/control_2_R1.fastq.gz,/absolute/path/control_2_R2.fastq.gz,control,,0
-treated_1,/absolute/path/treated_1_R1.fastq.gz,/absolute/path/treated_1_R2.fastq.gz,treated,,0
-treated_2,/absolute/path/treated_2_R1.fastq.gz,/absolute/path/treated_2_R2.fastq.gz,treated,,0
+control_1,/path/control_1_R1.fastq.gz,/path/control_1_R2.fastq.gz,control,,0
+control_2,/path/control_2_R1.fastq.gz,/path/control_2_R2.fastq.gz,control,,0
+treated_1,/path/treated_1_R1.fastq.gz,/path/treated_1_R2.fastq.gz,treated,,0
+treated_2,/path/treated_2_R1.fastq.gz,/path/treated_2_R2.fastq.gz,treated,,0
 ```
 
 - `Sample`: unique sample label.
@@ -111,46 +106,26 @@ treated_2,/absolute/path/treated_2_R1.fastq.gz,/absolute/path/treated_2_R2.fastq
 - `Source`: optional sample/patient or paired-design label; leave blank if not applicable.
 - `Strandedness`: `0` = unstranded, `1` = forward stranded, `2` = reverse stranded, according to upstream RNAflow's convention. Set this to the actual library type.
 
-All FASTQ and reference paths must be accessible to Docker from the execution host. Use absolute paths where practical. For meaningful biological inference, do not treat independently subsampled FASTQs from the same library as independent biological replicates.
-
-### Reference files
-
-The upstream `--genome` and `--annotation` parameters accept **one file path per line**, for example:
-
-`genome_files.csv`:
-
-```text
-/absolute/path/reference_genome.fa
-```
-
-`annotation_files.csv`:
-
-```text
-/absolute/path/reference_annotation.gtf
-```
-
-Use matching genome and annotation releases and compatible sequence naming (e.g., `chr1` versus `1`). Annotation-dependent RSeQC functions require a suitable BED conversion; a GTF file alone is not a direct substitute for the expected RSeQC BED input.
-
 ### Optional configuration examples
 
 ```bash
 # Default/original alignment, with the added RSeQC steps disabled
 nextflow run . -profile docker,local \
-  --reads samples.csv --genome genome_files.csv --annotation annotation_files.csv \
+  --reads samples.csv --genome genome_files.csv \
   --aligner hisat2 --run_rseqc false
 
 # STAR alignment with the optional RSeQC workflow enabled
 nextflow run . -profile docker,local \
-  --reads samples.csv --genome genome_files.csv --annotation annotation_files.csv \
+  --reads samples.csv --genome genome_files.csv \
   --aligner star --run_rseqc true
 
 # Avoid repeating completed tasks when resuming the same run
 nextflow run . -profile docker,local \
-  --reads samples.csv --genome genome_files.csv --annotation annotation_files.csv \
+  --reads samples.csv --genome genome_files.csv \
   --aligner star --run_rseqc true -resume
 ```
 
-Other inherited upstream RNAflow controls include `--skip_sortmerna`, `--skip_read_preprocessing`, `--deg`, `--tpm`, and `--featurecounts_additional_params`. Refer to the [original RNAflow documentation](https://github.com/hoelzer-science/rnaflow) for their full usage and semantics; do not assume the same defaults in every custom revision.
+Other inherited upstream RNAflow controls include `--skip_sortmerna`, `--skip_read_preprocessing`, `--deg`, `--tpm`, and `--featurecounts_additional_params`. Refer to the [original RNAflow documentation](https://github.com/hoelzer-science/rnaflow) for their full usage.
 
 ## Expected outputs and quality-control guidance
 
@@ -172,40 +147,13 @@ Output paths depend on the current workflow implementation and configured result
 | DESeq2 | Differential gene-expression tables and diagnostic plots |
 | MultiQC | Combined QC report for supported tools and formats |
 
-**MultiQC coverage depends on its version and parser compatibility.** Do not presume every RSeQC module appears automatically in MultiQC unless its output has been explicitly incorporated and tested. Individual RSeQC result files can remain useful even if absent from the combined MultiQC report.
-
-### Basic QC interpretation
-
-1. Review raw and trimmed FastQC/fastp plots before evaluating downstream alignment quality.
-2. Check aligner summaries, uniquely mapped reads, and assignment percentages; unexpected changes can signal a mismatched genome/annotation or unsuitable read inputs.
-3. Compare gene-body coverage **across comparable library preparations** and alongside other QC metrics.
-4. Examine `infer_experiment` before assuming the correct strandedness setting for featureCounts.
-5. Apply `inner_distance` only when the library is paired-end; interpret duplication and junction saturation relative to library preparation and sequencing depth.
-6. Inspect the DESeq2 design, biological replication, and count filtering before interpreting DEGs.
-
 ## Troubleshooting
 
 **Docker process fails or cannot access files.** Confirm Docker is running (`docker info`) and that all FASTQ, genome, and annotation paths are readable from the host and accessible to Docker. Ensure sufficient storage for `work/` and image pulls.
 
 **STAR index fails or the process is killed.** Examine RAM use and Nextflow process logs. Whole-genome STAR indices can demand substantially more memory than HISAT2 indices; use appropriately sized hardware and check process resource limits.
 
-**An RSeQC module reports a missing BED or conversion command.** Verify that GTF-to-BED conversion ran successfully, that BED12 features are compatible with the RSeQC tool, and that conversion executables are installed in the **actual Docker image used by the process**. Do not rely on a conversion executable from the host being present inside the container.
-
-**`--run_rseqc false` still causes an RSeQC process/output error.** In Nextflow, outputs of skipped processes must not be referenced unconditionally. Inspect module wiring for conditional invocation and initialized empty channels. This is a development/debugging check rather than a user-facing option.
-
-**RSeQC plots missing from MultiQC.** Look for the original RSeQC files first; MultiQC integration may require per-module parser support, naming conventions, or explicitly included result channels.
-
 **Conda/Singularity execution fails.** For extended STAR/RSeQC operations, switch to the tested `-profile docker,local` configuration. The extended modules have not yet been adapted and validated for these alternate environments.
-
-**Cannot resume a previous analysis.** Use `-resume` from the same project execution context with access to the previous Nextflow cache and `work/` directory. Changed inputs or scripts may correctly trigger re-execution.
-
-## Reproducibility and limitations
-
-- Record the current Git commit, Nextflow version, Docker images and tags/digests, command line, reference genome/annotation release, and relevant input metadata in each analysis.
-- **Docker-only for the extension:** the additional STAR/RSeQC features have not been validated under Conda or Singularity/Apptainer.
-- **Module availability can vary by development revision:** confirm the RSeQC processes enabled in the checked-out workflow before running.
-- **Not all extra QC modules are appropriate for every library:** e.g., paired-read inner distance requires paired-end data, while gene-body coverage is library-design-dependent.
-- Recheck workflow flags and paths against the current checkout before relying on these instructions, since the complete developed repository code was not supplied when drafting this README.
 
 ## Citation and license
 
