@@ -5,9 +5,20 @@ on: [push]
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v1
-    - name: Help_test
-      run: export NXF_VER=23.04.3 && curl -s https://get.nextflow.io | bash && ./nextflow -version && ./nextflow run main.nf --help
 
-#      run: curl -s https://get.nextflow.io | bash && ./nextflow run main.nf --help
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Help_test
+        run: |
+          export NXF_VER=23.04.3
+          curl -fsSL https://get.nextflow.io | bash
+          ./nextflow -version
+          ./nextflow run main.nf --help

@@ -17,7 +17,7 @@ This README describes the extended differential-expression workflow. Other featu
 
 ![Overview of the extended RNAflow pipeline](figures/developed_pipeline_overview.jpeg)
 
-*Pipeline overview showing the STAR/HISAT2 alignment options and RSeQC Gene Body Coverage. Additional RSeQC modules are described below but are not shown individually in this diagram.*
+*Fig 1. Pipeline overview showing the STAR/HISAT2 alignment options and RSeQC Gene Body Coverage.*
 
 The analysis proceeds through:
 
